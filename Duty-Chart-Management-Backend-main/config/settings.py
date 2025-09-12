@@ -62,8 +62,15 @@ ROOT_URLCONF = 'config.urls'
 TEMPLATES = [
     {
         'BACKEND': 'django.template.backends.django.DjangoTemplates',
-        'DIRS': [],
-        'APP_DIRS': True,
+
+        # Add your project-level templates dir here (optional if you keep
+        # them inside the app folder, but handy if you ever use global templates)
+        'DIRS': [
+            BASE_DIR / 'templates',  # <- creates a central templates/ folder at project root
+        ],
+
+        'APP_DIRS': True,  # <- keep this True so Django finds templates in each app, e.g. duties/templates/
+
         'OPTIONS': {
             'context_processors': [
                 'django.template.context_processors.debug',
@@ -74,6 +81,7 @@ TEMPLATES = [
         },
     },
 ]
+
 
 WSGI_APPLICATION = 'config.wsgi.application'
 
@@ -197,3 +205,5 @@ SWAGGER_SETTINGS = {
         }
     },
 }
+
+

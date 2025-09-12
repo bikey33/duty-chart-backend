@@ -1,22 +1,68 @@
-from django.shortcuts import render
 from datetime import timedelta
+import datetime
+import pandas as pd  # ✅ Needed for Excel parsing in roster bulk upload
+
+from django.shortcuts import render, get_object_or_404
+from django.core.exceptions import ValidationError
+
 from rest_framework import viewsets, permissions, status
 from rest_framework.decorators import action
 from rest_framework.parsers import MultiPartParser, FormParser
 from rest_framework.response import Response
 from rest_framework.views import APIView
+
 from drf_yasg.utils import swagger_auto_schema
 from drf_yasg import openapi
+from drf_spectacular.utils import extend_schema, OpenApiExample, OpenApiParameter
 
-from .models import DutyChart, Duty
-from .serializers import DutyChartSerializer, DutySerializer, BulkDocumentUploadSerializer, DocumentSerializer
+from org.models import Office  # ✅ Needed for office lookup in roster bulk upload
 
-# NEW imports for bulk roster upload & schedule
-import pandas as pd
-import datetime
-from django.db import transaction
-from .models import RosterAssignment, RosterShift
-from .serializers import BulkUploadExcelSerializer, ALLOWED_HEADERS, RosterAssignmentSerializer
+from .models import DutyChart, Duty, RosterAssignment, Schedule
+from .serializers import (
+    DutyChartSerializer,
+    DutySerializer,
+    BulkDocumentUploadSerializer,
+    DocumentSerializer,
+    ScheduleSerializer,
+    ALLOWED_HEADERS,
+    HEADER_MAP,
+    RosterAssignmentSerializer,
+)
+
+
+class ScheduleView(viewsets.ModelViewSet):
+    queryset = Schedule.objects.all()
+    serializer_class = ScheduleSerializer
+
+    @action(detail=False, methods=['post'], url_path='sync-from-roster')
+    def sync_from_roster(self, request):
+        """
+        Pulls all RosterAssignment entries and inserts/updates them into Schedule.
+        """
+        roster_entries = RosterAssignment.objects.all()
+        created_count, updated_count = 0, 0
+
+        for ra in roster_entries:
+            obj, created = Schedule.objects.update_or_create(
+                employee_name=ra.employee_name,
+                office=ra.office,
+                start_date=ra.start_date,
+                end_date=ra.end_date,
+                start_time=ra.start_time,
+                end_time=ra.end_time,
+                shift=ra.shift,
+                defaults={'phone_number': ra.phone_number}
+            )
+            if created:
+                created_count += 1
+            else:
+                updated_count += 1
+
+        return Response({
+            "message": "Schedule sync complete",
+            "created": created_count,
+            "updated": updated_count
+        }, status=status.HTTP_200_OK)
 
 
 class BulkDocumentUploadView(APIView):
@@ -218,147 +264,93 @@ class DutyViewSet(viewsets.ModelViewSet):
         return Response({'created': created, 'updated': updated, 'skipped': skipped}, status=status.HTTP_200_OK)
 
 
-# ------------------- NEW BULK UPLOAD ASSIGNMENTS & SCHEDULE ENDPOINTS -------------------
-# ------------------- NEW BULK UPLOAD ASSIGNMENTS & SCHEDULE ENDPOINTS -------------------
+# ✅ New Roster Bulk Upload View: 
 
-class BulkUploadAssignmentsView(APIView):
-    """
-    Strict Excel bulk upload for roster assignments.
-    Expected columns exactly: ALLOWED_HEADERS (e.g., ['Date', 'Shift', 'Employee', 'Network'])
-    """
+class RosterBulkUploadView(APIView):
     permission_classes = [permissions.IsAuthenticated]
     parser_classes = [MultiPartParser, FormParser]
+    querryset = RosterAssignment.objects.all()
+
 
     @swagger_auto_schema(
-        operation_description="Strict Excel bulk upload for roster assignments.",
+        operation_description=(
+            "Bulk upload roster assignments from Excel.\n\n"
+            f"**Required columns:** {', '.join(ALLOWED_HEADERS)}"
+        ),
         manual_parameters=[
-            openapi.Parameter('file', openapi.IN_FORM, description="Excel .xlsx/.xls file", type=openapi.TYPE_FILE, required=True),
-            openapi.Parameter('dry_run', openapi.IN_QUERY, description="Validate without saving", type=openapi.TYPE_BOOLEAN),
+            openapi.Parameter(
+                name='file',
+                in_=openapi.IN_FORM,
+                type=openapi.TYPE_FILE,
+                description=f'Excel file (.xls/.xlsx) with columns: {", ".join(ALLOWED_HEADERS)}',
+                required=True
+            )
         ],
-        responses={200: openapi.Schema(
-            type=openapi.TYPE_OBJECT,
-            properties={
-                'created': openapi.Schema(type=openapi.TYPE_INTEGER),
-                'updated': openapi.Schema(type=openapi.TYPE_INTEGER),
-                'errors': openapi.Schema(type=openapi.TYPE_ARRAY, items=openapi.Items(type=openapi.TYPE_OBJECT)),
-                'dry_run': openapi.Schema(type=openapi.TYPE_BOOLEAN),
-            }
-        )}
+        responses={201: 'Roster assignments created/updated successfully'}
     )
-    def post(self, request):
-        # Validate incoming form using your serializer contract
-        serializer = BulkUploadExcelSerializer(data=request.data)
-        serializer.is_valid(raise_exception=True)
-        file_obj = serializer.validated_data['file']
-        dry_run = bool(serializer.validated_data.get('dry_run', False))
+    
+    def post(self, request, *args, **kwargs):
+        file_obj = request.FILES.get('file')
+        if not file_obj:
+            return Response({'detail': 'File is required.'}, status=status.HTTP_400_BAD_REQUEST)
 
-        # Parse Excel
         try:
-            df = pd.read_excel(file_obj, dtype=str)
+            df = pd.read_excel(file_obj)
         except Exception as e:
-            return Response({'error': f'Failed to read Excel file: {e}'}, status=status.HTTP_400_BAD_REQUEST)
+            return Response({'detail': f'Invalid Excel file: {e}'}, status=status.HTTP_400_BAD_REQUEST)
 
-        # Normalize and validate headers strictly
-        normalized_cols = [str(c).strip() for c in list(df.columns)]
-        df.columns = normalized_cols
+        # Normalize headers
+        df.columns = [str(c).strip() for c in df.columns]
 
-        missing = [c for c in ALLOWED_HEADERS if c not in normalized_cols]
-        unexpected = [c for c in normalized_cols if c not in ALLOWED_HEADERS]
-        if missing or unexpected:
-            return Response({
-                'error': 'Header mismatch',
-                'missing': missing,
-                'unexpected': unexpected,
-                'expected_exact': ALLOWED_HEADERS
-            }, status=status.HTTP_400_BAD_REQUEST)
+        # Strict header check
+        if list(df.columns) != ALLOWED_HEADERS:
+            missing = [c for c in ALLOWED_HEADERS if c not in df.columns]
+            extra = [c for c in df.columns if c not in ALLOWED_HEADERS]
+            msg_parts = []
+            if missing:
+                msg_parts.append(f"Missing columns: {', '.join(missing)}")
+            if extra:
+                msg_parts.append(f"Unexpected columns: {', '.join(extra)}")
+            return Response({'detail': " | ".join(msg_parts)}, status=status.HTTP_400_BAD_REQUEST)
 
-        created_count, updated_count = 0, 0
+        created_count, updated_count, failed_count = 0, 0, 0
         errors = []
 
-        # Use a transaction; in dry_run we skip writes but still validate rows
-        with transaction.atomic():
-            for idx, row in df.iterrows():
-                row_num = int(idx) + 2  # account for header row
-                try:
-                    date_val = pd.to_datetime(row['Date']).date()
-                    shift_val = (row['Shift'] or '').strip()
-                    emp_val = (row['Employee'] or '').strip()
-                    net_val = (row['Network'] or '').strip()
+        for idx, row in df.iterrows():
+            try:
+                row_dict = {HEADER_MAP[col]: row[col] for col in ALLOWED_HEADERS}
 
-                    if not date_val or not shift_val or not emp_val or not net_val:
-                        raise ValueError('One or more required fields are empty')
-
-                    if dry_run:
-                        # Determine would-create / would-update without writing
-                        exists = RosterAssignment.objects.filter(
-                            date=date_val, shift=shift_val, employee=emp_val
-                        ).exists()
-                        if exists:
-                            updated_count += 1
-                        else:
-                            created_count += 1
+                # Resolve office FK if needed
+                if isinstance(row_dict.get('office'), str):
+                    office_obj = Office.objects.filter(name__iexact=row_dict['office']).first()
+                    if not office_obj:
+                        failed_count += 1
+                        errors.append(f"Row {idx+2}: Office '{row_dict['office']}' not found")
                         continue
+                    row_dict['office'] = office_obj
 
-                    obj, created = RosterAssignment.objects.update_or_create(
-                        date=date_val,
-                        shift=shift_val,
-                        employee=emp_val,
-                        defaults={'network': net_val}
-                    )
-                    if created:
-                        created_count += 1
-                    else:
-                        updated_count += 1
+                serializer = RosterAssignmentSerializer(data=row_dict)
+                serializer.is_valid(raise_exception=True)
+                instance = serializer.save()
 
-                except Exception as e:
-                    errors.append({'row': row_num, 'error': str(e)})
+                # Track created vs updated
+                if getattr(instance, "_state", None) and not instance._state.adding:
+                    updated_count += 1
+                else:
+                    created_count += 1
 
-        return Response({
-            'created': created_count,
-            'updated': updated_count,
-            'errors': errors,
-            'dry_run': dry_run
-        }, status=status.HTTP_200_OK)
+            except Exception as e:
+                failed_count += 1
+                errors.append(f"Row {idx+2}: {e}")
 
+        detail = (
+            f"Created: {created_count}, "
+            f"Updated: {updated_count}, "
+            f"Failed: {failed_count}"
+        )
 
-class ScheduleView(viewsets.ReadOnlyModelViewSet):
-    """
-    Read-only schedule API for RosterAssignment.
-    Filters: start_date, end_date, shift, employee
-    """
-    queryset = RosterAssignment.objects.all().order_by('date', 'shift', 'employee')
-    serializer_class = RosterAssignmentSerializer  # ensure this is imported at top
-    permission_classes = [permissions.IsAuthenticated]
+        resp = {'detail': detail}
+        if errors:
+            resp['errors'] = errors[:10]  # Limit returned errors for safety
 
-    @swagger_auto_schema(
-        operation_description="Fetch schedule filtered by date range, shift, or employee.",
-        manual_parameters=[
-            openapi.Parameter('start_date', openapi.IN_QUERY, description="Filter from date (YYYY-MM-DD)", type=openapi.TYPE_STRING, format=openapi.FORMAT_DATE),
-            openapi.Parameter('end_date', openapi.IN_QUERY, description="Filter to date (YYYY-MM-DD)", type=openapi.TYPE_STRING, format=openapi.FORMAT_DATE),
-            openapi.Parameter('shift', openapi.IN_QUERY, description="Exact shift value", type=openapi.TYPE_STRING),
-            openapi.Parameter('employee', openapi.IN_QUERY, description="Partial match on employee name", type=openapi.TYPE_STRING),
-            openapi.Parameter('network', openapi.IN_QUERY, description="Exact network match", type=openapi.TYPE_STRING),
-        ]
-    )
-    def list(self, request, *args, **kwargs):
-        return super().list(request, *args, **kwargs)
-
-    def get_queryset(self):
-        qs = super().get_queryset()
-        start = self.request.query_params.get('start_date')
-        end = self.request.query_params.get('end_date')
-        shift = self.request.query_params.get('shift')
-        employee = self.request.query_params.get('employee')
-        network = self.request.query_params.get('network')
-
-        if start:
-            qs = qs.filter(date__gte=start)
-        if end:
-            qs = qs.filter(date__lte=end)
-        if shift:
-            qs = qs.filter(shift__iexact=shift)
-        if employee:
-            qs = qs.filter(employee__icontains=employee)
-        if network:
-            qs = qs.filter(network__iexact=network)
-        return qs
+        return Response(resp, status=status.HTTP_201_CREATED)

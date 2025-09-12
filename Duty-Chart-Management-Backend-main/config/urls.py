@@ -24,8 +24,8 @@ from duties.views import (
     DutyChartViewSet,
     DutyViewSet,
     BulkDocumentUploadView,
-    BulkUploadAssignmentsView,   # NEW
-    ScheduleView                  # NEW
+    RosterBulkUploadView,
+    ScheduleView,  # your updated Schedule API
 )
 
 # ------------------------------------------------------------------------------
@@ -63,7 +63,7 @@ schema_view.security_definitions = {
 schema_view.security = [{"Bearer": []}]
 
 # ------------------------------------------------------------------------------
-# DRF Router registrations
+# DRF Router registrations (single router for all ViewSets)
 # ------------------------------------------------------------------------------
 router = DefaultRouter()
 
@@ -79,32 +79,26 @@ router.register(r"offices", OfficeViewSet)
 router.register(r"duty-charts", DutyChartViewSet)
 router.register(r"duties", DutyViewSet)
 
+
+# Schedule
+router.register(r"schedule", ScheduleView, basename="schedule")
+
 # ------------------------------------------------------------------------------
 # URL patterns
 # ------------------------------------------------------------------------------
 urlpatterns = [
     path("admin/", admin.site.urls),
-
-    # API v1 routes
     path("api/v1/", include(router.urls)),
+
     path(
         "api/v1/bulk-upload/",
         BulkDocumentUploadView.as_view(),
         name="bulk_document_upload",
     ),
-
-    # NEW strict Excel bulk upload for roster assignments
     path(
         "api/v1/roster-bulk-upload/",
-        BulkUploadAssignmentsView.as_view(),
+        RosterBulkUploadView.as_view(),
         name="roster_bulk_upload",
-    ),
-
-    # NEW schedule endpoint
-    path(
-        "api/v1/schedule/",
-        ScheduleView.as_view({'get': 'list'}),
-        name="schedule_api",
     ),
 
     # JWT Authentication
@@ -112,7 +106,7 @@ urlpatterns = [
     path("api/token/refresh/", TokenRefreshView.as_view(), name="token_refresh"),
     path("api/token/verify/", TokenVerifyView.as_view(), name="token_verify"),
 
-    # Browsable API login (optional, dev use)
+    # Browsable API login
     path("api-auth/", include("rest_framework.urls")),
 
     # Swagger / ReDoc

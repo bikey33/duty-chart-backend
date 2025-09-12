@@ -1,0 +1,13 @@
+{% extends "admin/base_site.html" %}
+{% load i18n %}
+
+{% block content %}
+  <h1>{% trans "Bulk upload roster assignments" %}</h1>
+  <p>Upload an Excel file with the exact columns: {{ required_columns|join:", " }}.</p>
+  <form method="post" enctype="multipart/form-data" novalidate>
+    {% csrf_token %}
+    {{ form.as_p }}
+    <input type="submit" class="default" value="{% trans 'Upload' %}">
+    <a href="{% url 'admin:duties_rosterassignment_changelist' %}" class="button">{% trans "Cancel" %}</a>
+  </form>
+{% endblock %}
