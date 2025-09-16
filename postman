@@ -1,0 +1,21 @@
+○ snapd.service - Snap Daemon
+     Loaded: loaded (]8;;file://raderex/usr/lib/systemd/system/snapd.service\/usr/lib/systemd/system/snapd.service]8;;\; [0;1;32menabled[0m; preset: [0;1;38:5:185mdisabled[0m)
+     Active: inactive (dead) since Thu 2025-08-21 11:09:36 +0545; 445ms ago
+   Duration: 8.016s
+ Invocation: 317641b532674efc87edfd7a806622d4
+TriggeredBy: [0;1;32m●[0m snapd.socket
+    Process: 59183 ExecStart=/usr/lib/snapd/snapd [0;1;31m(code=exited, status=42)[0m
+   Main PID: 59183 (code=exited, status=42)
+   Mem peak: 26.6M
+        CPU: 408ms
+
+Aug 21 11:09:27 raderex snapd[59183]: daemon.go:250: started snapd/2.68.3-3+b2 (series 16; classic; devmode) kali/2025.2 (amd64) linux/6.12.33kali-amd64.
+Aug 21 11:09:27 raderex snapd[59183]: daemon.go:353: adjusting startup timeout by 30s (pessimistic estimate of 30s plus 5s per snap)
+Aug 21 11:09:28 raderex snapd[59183]: backends.go:91: AppArmor status: apparmor is enabled but some kernel features are missing: dbus, network
+Aug 21 11:09:28 raderex snapd[59183]: helpers.go:159: error trying to compare the snap system key: system-key missing on disk
+Aug 21 11:09:28 raderex systemd[1]: Started snapd.service - Snap Daemon.
+Aug 21 11:09:33 raderex snapd[59183]: daemon.go:548: gracefully waiting for running hooks
+Aug 21 11:09:33 raderex snapd[59183]: daemon.go:550: done waiting for running hooks
+Aug 21 11:09:36 raderex snapd[59183]: overlord.go:528: Released state lock file
+Aug 21 11:09:36 raderex snapd[59183]: daemon stop requested to wait for socket activation
+Aug 21 11:09:36 raderex systemd[1]: snapd.service: Deactivated successfully.

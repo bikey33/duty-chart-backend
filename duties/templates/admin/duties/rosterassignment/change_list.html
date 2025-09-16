@@ -1,0 +1,16 @@
+{% extends "admin/change_list.html" %}
+{% load i18n %}
+
+{% block object-tools %}
+  <ul class="object-tools">
+    <li>
+      <a href="{{ bulk_upload_url }}" class="button">
+        {% trans "Bulk upload Excel" %}
+      </a>
+    </li>
+    {{ block.super }}
+  </ul>
+  <div style="margin-top:.5rem; font-size: 12px; opacity:.8;">
+    Required columns: {{ required_columns|join:", " }}
+  </div>
+{% endblock %}
