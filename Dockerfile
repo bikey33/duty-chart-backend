@@ -1,17 +1,24 @@
-FROM python:3.11-slim
+FROM python:3.12-slim
+
+ENV PYTHONDONTWRITEBYTECODE=1
+ENV PYTHONUNBUFFERED=1
 
 WORKDIR /app
 
-COPY requirements.txt /app/
+
+# Install Python dependencies
+COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-COPY . /app/
+# Copy project files
+COPY . .
 
-# Collect static files
-RUN python manage.py collectstatic --noinput
+# Create directories for static and media files
+#RUN mkdir -p static media
 
-# Expose port
+# Collect static filesdoc
+#RUN python app/manage.py collectstatic --noinput
+
 EXPOSE 8000
 
-# Gunicorn command
-CMD ["gunicorn", "--chdir", "/app", "--bind", "0.0.0.0:8000", "config.wsgi:application"]
+CMD ["gunicorn", "--chdir", "app", "--bind", "0.0.0.0:8000", "config.wsgi:application"] 
