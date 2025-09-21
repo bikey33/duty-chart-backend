@@ -18,3 +18,4 @@ pandas>=2.2.2,<2.3
 openpyxl>=3.1.2,<3.2
 gunicorn
 psycopg2-binary
+python-dotenv==1.0.1
