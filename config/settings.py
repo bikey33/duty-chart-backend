@@ -15,7 +15,7 @@ from pathlib import Path
 from datetime import timedelta
 from dotenv import load_dotenv
 
-# ALLOWED_HOSTS = os.environ.get("ALLOWED_HOSTS", "localhost,127.0.0.1,0.0.0.0").split(",")
+ALLOWED_HOSTS = os.environ.get("ALLOWED_HOSTS", "localhost,127.0.0.1,0.0.0.0,10.26.204.149").split(",")
 CORS_ALLOW_ALL_ORIGINS = True 
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
