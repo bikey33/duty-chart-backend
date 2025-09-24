@@ -1,6 +1,6 @@
 import pandas as pd
 from django.core.management.base import BaseCommand
-from duties.models import Directorate, Department, Office
+from orgs.models import Directorate, Department, Office
 
 class Command(BaseCommand):
     help = "Import directorates, departments, and offices from Excel"
